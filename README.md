@@ -4,11 +4,19 @@ Express + TypeScript REST API for **PizzaHub**, a role-based pizza ordering and 
 platform. The API owns authentication, role authorization, MongoDB business data, Stripe
 subscription checkout/webhooks, ImgBB uploads and email password resets.
 
-- Client repository: <https://github.com/farhana-ayesha/pizzahub-client>
-- Server repository: <https://github.com/farhana-ayesha/pizzahub-server>
-- Live API: add the deployed API URL here after deploying (for example
-  `https://pizzahub-api.onrender.com`). No live URL is committed because it depends on the
-  operator's hosting account and secrets.
+## Live API
+
+- API Base URL: https://pizzahub-server-size.onrender.com/
+- Health Check: https://pizzahub-server-size.onrender.com/health
+
+## Live Demo
+
+https://pizzahub-client-pi-beryl.vercel.app/
+
+## GitHub Repositories
+
+- Client: https://github.com/farhana-ayesha/pizzahub-client
+- Server: https://github.com/farhana-ayesha/pizzahub-server
 
 ## Features
 
