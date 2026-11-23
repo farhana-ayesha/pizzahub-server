@@ -86,8 +86,8 @@ See `.env.example` for the full list. Never commit `.env` or real secrets.
 | --- | --- |
 | `NODE_ENV`, `PORT` | Runtime mode and HTTP port |
 | `MONGODB_URI`, `MONGODB_DB_NAME` | MongoDB connection and database |
-| `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` | Better Auth signing secret and public API URL |
-| `CLIENT_URL`, `CLIENT_URLS` | Allowed CORS/client origins |
+| `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` | Better Auth signing secret and public auth origin (the client origin that proxies `/api/auth`) |
+| `CLIENT_URL`, `CLIENT_URLS` | Allowed CORS/client origins; `CLIENT_URL` must match the `BETTER_AUTH_URL` origin |
 | `JWT_SECRET`, `JWT_EXPIRES_IN` | JWT signing secret and lifetime |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional Google sign-in |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Stripe API and webhook verification |
@@ -147,8 +147,16 @@ Premium is written to MongoDB only after signature verification and a paid subsc
 
 ## Google OAuth and ImgBB
 
-- Google: set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and register
-  `{BETTER_AUTH_URL}/api/auth/callback/google` as the authorized redirect URI.
+- Google: set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. In Google Cloud Console add:
+  - Authorized JavaScript origin: `{BETTER_AUTH_URL}`
+  - Authorized redirect URI: `{BETTER_AUTH_URL}/api/auth/callback/google`
+
+  `BETTER_AUTH_URL` is the public **client** origin, because the Next.js client proxies
+  `/api/auth/*` to this API. For local development that is `http://localhost:3000`; in
+  production it is the deployed client URL. `CLIENT_URL` must use the same origin.
+- Existing email/password users are linked to Google by their verified Google email on first
+  Google sign-in, so they keep the same MongoDB user and role. Google sign-ups honour the
+  customer/vendor role selected on the registration form.
 - ImgBB: set `IMGBB_API_KEY`. Vendors upload through `POST /api/upload`, which proxies the
   base64 image to ImgBB. Without the key the API returns `503` and the client keeps a
   compressed local preview with a visible warning.
@@ -167,7 +175,9 @@ Premium is written to MongoDB only after signature verification and a paid subsc
 
 1. Provision MongoDB Atlas and set `MONGODB_URI`, `MONGODB_DB_NAME`.
 2. Generate production `BETTER_AUTH_SECRET` and `JWT_SECRET`.
-3. Set `BETTER_AUTH_URL` to the public API URL and `CLIENT_URL` to the public client URL.
-4. Configure Stripe, Google and ImgBB credentials.
+3. Set `BETTER_AUTH_URL` and `CLIENT_URL` to the public client origin (the client proxies
+   `/api/auth/*` to this API). Do not point `BETTER_AUTH_URL` at the API host.
+4. Configure Stripe, Google and ImgBB credentials. Register
+   `{BETTER_AUTH_URL}/api/auth/callback/google` in Google Cloud Console.
 5. Run `npm run build`, then `npm start`. Run `npm run seed` once to create the admin account.
 6. Register the Stripe webhook against the deployed `/api/stripe/webhook`.

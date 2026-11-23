@@ -1,13 +1,38 @@
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
-import { APIError, createAuthMiddleware } from "better-auth/api";
-import type { Db } from "mongodb";
+import {
+  APIError,
+  addOAuthServerContext,
+  createAuthMiddleware,
+  getOAuthState,
+} from "better-auth/api";
+import { ObjectId, type Db } from "mongodb";
 import { clientOrigins, env, isGoogleConfigured } from "../config/env.js";
 import { sendPasswordResetEmail } from "../utils/mail.js";
 
 let authInstance: ReturnType<typeof buildAuth> | null = null;
 
 const strongPassword = /^(?=.*[a-z])(?=.*[A-Z]).{6,}$/;
+
+type SignUpRole = "customer" | "vendor";
+
+function requestedRole(value: unknown): SignUpRole | null {
+  return value === "vendor" || value === "customer" ? value : null;
+}
+
+/**
+ * Reads the role that was signed into the OAuth state cookie by the
+ * `/sign-in/social` hook. Better Auth does not copy `additionalData` into the
+ * new user automatically, so the user.create hook applies it here.
+ */
+async function oauthSignUpRole(): Promise<SignUpRole | null> {
+  try {
+    const state = await getOAuthState();
+    return requestedRole(state?.serverContext?.role);
+  } catch {
+    return null;
+  }
+}
 
 function validatePassword(password: unknown) {
   if (typeof password !== "string" || !strongPassword.test(password)) {
@@ -46,6 +71,18 @@ export function buildAuth(db: Db) {
           },
         }
       : {},
+    account: {
+      accountLinking: {
+        enabled: true,
+        // This app does not send verification emails for password accounts, so
+        // local users are usually unverified. Google only returns an address
+        // after verifying it, and the provider is trusted below. Allowing the
+        // link lets an existing email/password user sign in with Google instead
+        // of ending up with a duplicate account or an "account not linked" error.
+        requireLocalEmailVerified: false,
+        trustedProviders: ["google"],
+      },
+    },
     user: {
       additionalFields: {
         role: {
@@ -92,11 +129,10 @@ export function buildAuth(db: Db) {
       user: {
         create: {
           before: async (user) => {
-            const requestedRole = (user as Record<string, unknown>).role;
-            const role =
-              requestedRole === "vendor" || requestedRole === "customer"
-                ? requestedRole
-                : "customer";
+            const requested = requestedRole(
+              (user as Record<string, unknown>).role,
+            );
+            const role = requested ?? (await oauthSignUpRole()) ?? "customer";
             return {
               data: {
                 ...user,
@@ -115,6 +151,30 @@ export function buildAuth(db: Db) {
           },
         },
       },
+      session: {
+        create: {
+          before: async (session) => {
+            // Better Auth does not know about the business-level isBlocked
+            // flag. Reject session creation here so blocked accounts cannot
+            // sign in with Google (or email/password) in the first place.
+            const userId = String(session.userId);
+            const user =
+              ObjectId.isValid(userId) &&
+              new ObjectId(userId).toHexString() === userId
+                ? await db
+                    .collection("users")
+                    .findOne({ _id: new ObjectId(userId) })
+                : await db.collection("users").findOne({ id: userId });
+            if (user?.isBlocked) {
+              throw new APIError("FORBIDDEN", {
+                message:
+                  "This account has been blocked by an administrator.",
+                code: "account_blocked",
+              });
+            }
+          },
+        },
+      },
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
@@ -129,6 +189,20 @@ export function buildAuth(db: Db) {
           }
           if (body.role !== "vendor" && body.role !== "customer") {
             body.role = "customer";
+          }
+        }
+
+        if (ctx.path === "/sign-in/social") {
+          const provider =
+            typeof body.provider === "string" ? body.provider : "";
+          const additionalData = body.additionalData as
+            | Record<string, unknown>
+            | undefined;
+          const role = requestedRole(additionalData?.role);
+          if (provider === "google" && role) {
+            // Store the requested role in the signed OAuth state so a new
+            // Google user keeps the account type selected on the sign-up form.
+            await addOAuthServerContext({ role });
           }
         }
 

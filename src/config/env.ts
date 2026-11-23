@@ -61,6 +61,12 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 
+if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {
+  throw new Error(
+    "Google OAuth is partially configured. Set both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, or leave both empty.",
+  );
+}
+
 if (isProduction) {
   const unsafeDefaults = [
     ["BETTER_AUTH_SECRET", "pizzahub-development-better-auth-secret-change-me"],
