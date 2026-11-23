@@ -1,24 +1,40 @@
+import { createApp } from "./app.js";
+import { buildAuth } from "./auth/auth.js";
+import { env } from "./config/env.js";
+import { closeDatabase, connectDatabase } from "./db/mongo.js";
 
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
+async function main() {
+  const db = await connectDatabase();
+  buildAuth(db);
 
-dotenv.config();
-
-const app = express();
-
-app.use(cors());
-app.use(express.json());
-
-app.get("/health", (_req, res) => {
-  res.json({
-    success: true,
-    message: "PizzaHub API is running",
+  const app = createApp();
+  const server = app.listen(env.PORT, () => {
+    console.log(`PizzaHub API listening on http://localhost:${env.PORT}`);
+    console.log(`Allowed client origins: ${env.CLIENT_URL}`);
   });
-});
 
-const PORT = process.env.PORT || 4000;
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received, shutting down PizzaHub API...`);
+    server.close(async () => {
+      try {
+        await closeDatabase();
+        process.exit(0);
+      } catch (error) {
+        console.error("Failed to close the database cleanly:", error);
+        process.exit(1);
+      }
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
 
-app.listen(PORT, () => {
-  console.log(`PizzaHub server running on port ${PORT}`);
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+}
+
+main().catch((error) => {
+  console.error("PizzaHub API failed to start:", error);
+  process.exit(1);
 });
